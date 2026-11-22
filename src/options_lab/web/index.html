@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Compare European option pricers and explore a synthetic implied volatility surface.">
+<title>Options Pricing Lab</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="header">
+  <div class="brand"><span class="mark" aria-hidden="true">∂</span><span>Options Pricing Lab</span></div>
+  <span class="edition">European options · v1.0</span>
+</header>
+<main>
+  <section class="intro">
+    <h1>Options pricing lab</h1>
+    <p>Compare European option pricers, evaluate Greeks and delta hedges, and explore implied volatility.</p>
+  </section>
+  <nav class="nav" aria-label="Experiments">
+    <button type="button" data-page="pricing" aria-current="page">Pricing</button>
+    <button type="button" data-page="evaluation">Model evaluation</button>
+    <button type="button" data-page="robustness">Robustness</button>
+    <button type="button" data-page="hedging">Hedge simulation</button>
+    <button type="button" data-page="stress">Hedge stress</button>
+    <button type="button" data-page="numerical">Numerical methods</button>
+    <button type="button" data-page="surface">Volatility surface</button>
+    <button type="button" data-page="market">Market chains</button>
+    <button type="button" data-page="report">Research report</button>
+  </nav>
+  <section id="pricing" class="workspace">
+    <form id="pricing-form" class="panel controls">
+      <h2>Contract inputs</h2>
+      <fieldset class="segmented"><legend>Option type</legend>
+        <label><input type="radio" name="kind" value="call" checked><span>Call</span></label>
+        <label><input type="radio" name="kind" value="put"><span>Put</span></label>
+      </fieldset>
+      <div class="fields">
+        <label>Spot price ($)<input name="spot" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Strike price ($)<input name="strike" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Days to expiry<input name="days" type="number" value="90" min="1" max="1095" step="any" required></label>
+        <label>Volatility (%)<input name="vol" type="number" value="25" min=".1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Dividend yield (%)<input name="dividend" type="number" value="0" min="0" max="30" step="any" required></label>
+      </div>
+      <details><summary>Implied volatility</summary>
+        <label>Observed premium ($)<input name="premium" type="number" min="0" max="100000" step="any" placeholder="Optional"></label>
+        <p>Back out volatility from a premium using Black–Scholes.</p>
+      </details>
+      <button class="primary" type="submit">Update pricing <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="pricing-status" class="status" role="status"></div>
+      <div class="metrics" id="price-metrics" aria-live="polite"></div>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Price across spot levels</h2><p>Strike, expiry, and volatility held constant</p></div>
+          <button id="pricing-export" class="secondary" disabled type="button">Download CSV</button></div>
+        <div class="legend"><span>Black–Scholes</span><span>Price-only network</span><span>Price + delta network</span><span>Constrained mixture</span></div>
+        <div class="chart"><canvas id="pricing-chart" role="img" aria-label="Black–Scholes and neural option price curves across spot levels"></canvas></div>
+      </section>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Option sensitivities</h2><p>Greeks at the selected spot and across the price sweep</p></div></div>
+        <div id="greeks"></div>
+        <label class="result-filter">Greek to plot
+          <select id="greek-statistic">
+            <option value="delta">Delta</option>
+            <option value="gamma">Gamma</option>
+            <option value="vega">Vega</option>
+            <option value="theta" selected>Theta</option>
+            <option value="rho">Rho</option>
+            <option value="vanna">Vanna</option>
+            <option value="vomma">Vomma</option>
+          </select>
+        </label>
+        <div class="benchmark-notes"><p id="greek-definition"></p></div>
+        <div class="legend"><span>Black–Scholes</span><span>Price-only network</span><span>Price + delta network</span><span>Constrained mixture</span></div>
+        <div class="chart compact"><canvas id="greek-chart" role="img" aria-label="Option sensitivity across spot levels" aria-describedby="greek-definition"></canvas></div>
+      </section>
+    </div>
+  </section>
+  <section id="evaluation" class="workspace" hidden>
+    <form id="evaluation-form" class="panel controls">
+      <h2>Evaluation settings</h2>
+      <label>Random seed<input name="seed" type="number" value="42" min="0" max="999999" required></label>
+      <p>All fitted models use the same training contracts and are scored on the same independent holdout, with extra near-the-money, low-total-volatility cases.</p>
+      <button class="primary" type="submit">Run evaluation <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="evaluation-status" class="status" role="status"></div>
+      <div class="metrics" id="eval-metrics"></div>
+      <section class="panel detail">
+        <div class="panel-head"><div><h2>Held-out errors</h2><p>Errors versus Black–Scholes on matched contracts</p></div>
+          <button id="evaluation-export" class="secondary" disabled type="button">Download report</button></div>
+        <div class="result-filters">
+          <label class="result-filter">Metrics
+            <select id="evaluation-metrics">
+              <option value="metrics">Price, delta, gamma, vega</option>
+              <option value="extended_metrics">Theta, rho, vanna, vomma</option>
+            </select>
+          </label>
+          <label class="result-filter">Error statistic
+            <select id="error-statistic">
+              <option value="mae">MAE</option>
+              <option value="rmse">RMSE</option>
+              <option value="p95_absolute_error">95th percentile absolute error</option>
+            </select>
+          </label>
+        </div>
+        <div id="evaluation-table"></div>
+      </section>
+      <section class="panel detail">
+        <h2>Strike and maturity checks</h2>
+        <p>Violations on a zero-carry grid with a fixed forward. Maturity is tested through increasing total volatility.</p>
+        <div id="shape-checks"></div>
+      </section>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Mixture training loss</h2><p>Joint normalized price and delta loss by optimizer iteration</p></div></div>
+        <div class="chart compact"><canvas id="loss-chart" role="img" aria-label="Neural training loss by epoch"></canvas></div>
+      </section>
+      <section class="panel detail"><h2>Inference speed</h2><p>Median elapsed time per pricing call after warmup. Timing depends on hardware.</p><div id="timing"></div></section>
+    </div>
+  </section>
+  <section id="robustness" class="workspace" hidden>
+    <form id="robustness-form" class="panel controls">
+      <h2>Evaluation settings</h2>
+      <div class="fields">
+        <label>First training seed<input name="seed" type="number" value="42" min="0" max="999998" required></label>
+        <label>Training runs<input name="training_runs" type="number" value="3" min="2" max="5" required></label>
+        <label>Held-out seed<input name="test_seed" type="number" value="2026" min="0" max="999999" required></label>
+        <label>Contracts per regime<input name="samples_per_regime" type="number" value="512" min="64" max="2048" required></label>
+      </div>
+      <p>Consecutive training seeds share the same held-out synthetic contracts. Each contract is priced as both a call and a put.</p>
+      <button class="primary" type="submit">Run robustness study <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="robustness-status" class="status" role="status"></div>
+      <div id="robustness-results" class="results" hidden>
+        <div id="robustness-metrics" class="metrics" aria-live="polite"></div>
+        <section class="panel chart-panel">
+          <div class="panel-head"><div><h2>Error across training seeds</h2><p id="robustness-regime-detail"></p></div>
+            <button id="robustness-export" class="secondary" type="button" disabled>Download report</button>
+          </div>
+          <div class="result-filters">
+            <label class="result-filter">Regime<select id="robustness-regime"></select></label>
+            <label class="result-filter">Option<select id="robustness-kind"><option value="call">Call</option><option value="put">Put</option></select></label>
+            <label class="result-filter">Metric<select id="robustness-metric">
+              <option value="price">Price</option><option value="delta">Delta</option><option value="gamma">Gamma</option>
+              <option value="vega">Vega</option><option value="theta">Theta</option><option value="rho">Rho</option>
+              <option value="vanna">Vanna</option><option value="vomma">Vomma</option>
+            </select></label>
+            <label class="result-filter">Error statistic<select id="robustness-stat">
+              <option value="mae">MAE</option><option value="rmse">RMSE</option><option value="p95_absolute_error">95th percentile absolute error</option>
+            </select></label>
+          </div>
+          <div class="legend"><span>Price-only network</span><span>Price + delta network</span><span>Constrained mixture</span></div>
+          <div class="chart compact"><canvas id="robustness-chart" role="img" aria-label="Errors against Black–Scholes by model and training seed"></canvas></div>
+          <div id="robustness-seeds"></div>
+        </section>
+        <section class="panel detail">
+          <h2>Summary across training seeds</h2>
+          <p>Violation columns show the highest count in any one run for this regime. Bounds checks use calls. Gamma and vega signs are shared by calls and puts.</p>
+          <div id="robustness-summary"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section id="hedging" class="workspace" hidden>
+    <form id="hedging-form" class="panel controls">
+      <h2>Simulation settings</h2>
+      <div class="fields">
+        <label>Option type<select name="kind"><option value="call">Call</option><option value="put">Put</option></select></label>
+        <label>Random seed<input name="seed" type="number" value="42" min="0" max="999999" required></label>
+        <label>Spot price ($)<input name="spot" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Strike price ($)<input name="strike" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Days to expiry<input name="days" type="number" value="90" min="1" max="1095" step="any" required></label>
+        <label>Volatility (%)<input name="vol" type="number" value="25" min=".1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Cost per trade (bps)<input name="cost_bps" type="number" value="5" min="0" max="100" step="any" required></label>
+        <label>Hedge intervals<input name="steps" type="number" value="30" min="2" max="252" required></label>
+        <label>Simulated paths<input name="paths" type="number" value="1000" min="100" max="5000" required></label>
+      </div>
+      <p>All four strategies sell one option for the same Black–Scholes premium and rebalance on the same zero-dividend price paths.</p>
+      <button class="primary" type="submit">Run simulation <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="hedging-status" class="status" role="status"></div>
+      <div class="metrics" id="hedge-metrics"></div>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Terminal hedge P&amp;L</h2><p>Percent of simulated paths in each bin</p></div>
+        <button id="hedging-export" class="secondary" type="button" disabled>Download CSV</button></div>
+        <div class="legend"><span>Black–Scholes</span><span>Price-only network</span><span>Price + delta network</span><span>Constrained mixture</span></div>
+        <div class="chart"><canvas id="hedging-chart" role="img" aria-label="Distribution of simulated P and L for all four hedges"></canvas></div>
+      </section>
+      <section class="panel detail"><h2>Hedge statistics</h2><p>P&amp;L includes financing, option payoff, and transaction costs.</p><div id="hedge-table"></div></section>
+    </div>
+  </section>
+  <section id="stress" class="workspace" hidden>
+    <form id="stress-form" class="panel controls">
+      <h2>Contract and baseline</h2>
+      <div class="fields">
+        <label>Option type<select name="kind"><option value="call">Call</option><option value="put">Put</option></select></label>
+        <label>Random seed<input name="seed" type="number" value="42" min="0" max="999999" required></label>
+        <label>Spot price ($)<input name="spot" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Strike price ($)<input name="strike" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Days to expiry<input name="days" type="number" value="90" min="1" max="1095" step="any" required></label>
+        <label>Hedge volatility (%)<input name="vol" type="number" value="25" min=".1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Base cost (bps)<input name="cost_bps" type="number" value="5" min="0" max="100" step="any" required></label>
+        <label>Path intervals<input name="steps" type="number" value="30" min="2" max="126" required></label>
+        <label>Simulated paths<input name="paths" type="number" value="1000" min="100" max="2500" required></label>
+      </div>
+      <h2>Stress assumptions</h2>
+      <div class="fields">
+        <label>Path volatility (%)<input name="stress_vol" type="number" value="40" min=".1" max="250" step="any" required></label>
+        <label>Midpoint spot jump (%)<input name="spot_jump" type="number" value="-10" min="-80" max="100" step="any" required></label>
+        <label>Stress cost (bps)<input name="stress_cost_bps" type="number" value="25" min="0" max="500" step="any" required></label>
+        <label>Rebalance every N intervals<input name="coarse_every" type="number" value="3" min="1" max="20" required></label>
+      </div>
+      <button class="primary" type="submit">Run stress test <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="stress-status" class="status" role="status"></div>
+      <div id="stress-results" class="results" hidden>
+        <div id="stress-metrics" class="metrics" aria-live="polite"></div>
+        <section class="panel chart-panel">
+          <div class="panel-head"><div><h2>Terminal hedge P&amp;L</h2><p id="stress-scenario-detail"></p></div>
+            <button id="stress-export" class="secondary" type="button" disabled>Download CSV</button>
+          </div>
+          <div class="result-filters">
+            <label class="result-filter">Hedge model<select id="stress-model"></select></label>
+            <label class="result-filter">Stress scenario<select id="stress-scenario"></select></label>
+          </div>
+          <div class="legend"><span>Baseline</span><span id="stress-scenario-legend">Combined stress</span></div>
+          <div class="chart"><canvas id="stress-chart" role="img" aria-label="Baseline and stressed terminal hedge profit and loss distributions"></canvas></div>
+        </section>
+        <section class="panel detail">
+          <h2>Scenario comparison</h2>
+          <p>Each scenario uses the same opening premium, hedge volatility, and random draws. Tail mean averages the worst 5% of paths, rounded up.</p>
+          <div id="stress-table"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section id="numerical" class="workspace" hidden>
+    <form id="numerical-form" class="panel controls">
+      <h2>Benchmark settings</h2>
+      <div class="fields">
+        <label>Option type<select name="kind"><option value="call">Call</option><option value="put">Put</option></select></label>
+        <label>Random seed<input name="seed" type="number" value="42" min="0" max="999999" required></label>
+        <label>Spot price ($)<input name="spot" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Strike price ($)<input name="strike" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>Days to expiry<input name="days" type="number" value="90" min="1" max="1095" step="any" required></label>
+        <label>Volatility (%)<input name="vol" type="number" value="25" min=".1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Dividend yield (%)<input name="dividend" type="number" value="0" min="0" max="30" step="any" required></label>
+        <label>Max tree steps<input name="tree_steps" type="number" value="1024" min="8" max="2048" required></label>
+        <label>Max MC paths<input name="mc_paths" type="number" value="131072" min="256" max="262144" step="2" required></label>
+      </div>
+      <p>All methods price the same European contract. The Monte Carlo variants use equal numbers of terminal payoffs at each budget.</p>
+      <button class="primary" type="submit">Run benchmark <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="numerical-status" class="status" role="status"></div>
+      <div id="numerical-metrics" class="metrics" aria-live="polite"></div>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Binomial tree convergence</h2><p>Absolute pricing error versus Black–Scholes</p></div>
+          <button id="numerical-export" class="secondary" disabled type="button">Download report</button></div>
+        <div id="tree-plot" class="chart compact" hidden><canvas id="tree-chart" role="img" aria-label="Absolute pricing error by CRR tree step count"></canvas></div>
+        <div id="tree-table"></div>
+      </section>
+      <section class="panel chart-panel">
+        <div class="panel-head"><div><h2>Monte Carlo convergence</h2><p>Absolute pricing error versus Black–Scholes</p></div></div>
+        <div class="legend"><span>Plain sampling</span><span>Antithetic sampling</span></div>
+        <div id="mc-plot" class="chart compact" hidden><canvas id="mc-chart" role="img" aria-label="Absolute pricing error by Monte Carlo path count for both samplers"></canvas></div>
+        <div id="mc-table"></div>
+        <div class="benchmark-notes">
+          <p>Approximate 95% intervals use individual payoffs for plain sampling and pair averages for antithetic sampling. An interval requires at least 20 positive observations and nonzero estimated variance.</p>
+          <p>Each runtime is the median of five warmed pricing calls. Monte Carlo timings include random sampling. The analytic price is the common reference.</p>
+        </div>
+      </section>
+    </div>
+  </section>
+  <section id="surface" class="workspace" hidden>
+    <form id="surface-form" class="panel controls">
+      <h2>Synthetic chain settings</h2>
+      <div class="fields">
+        <label>Spot price ($)<input name="spot" type="number" value="100" min=".01" max="100000" step="any" required></label>
+        <label>90-day ATM vol (%)<input name="atm_vol" type="number" value="25" min="1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Dividend yield (%)<input name="dividend" type="number" value="0" min="0" max="30" step="any" required></label>
+        <label>Skew (vol pts)<input name="skew" type="number" value="-5" min="-25" max="25" step="any" required></label>
+        <label>Smile (vol pts)<input name="smile" type="number" value="4" min="-25" max="25" step="any" required></label>
+        <label>Term slope (vol pts)<input name="term" type="number" value="1.5" min="-10" max="10" step="any" required></label>
+      </div>
+      <details><summary>What the shape controls do</summary>
+        <p>Negative skew raises the low-strike wing relative to the high-strike wing. Positive smile raises both wings. Term slope adds this many volatility points for each doubling of days to expiry.</p>
+      </details>
+      <button class="primary" type="submit">Generate surface <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="surface-status" class="status" role="status"></div>
+      <div class="results" id="surface-results" hidden>
+        <div id="surface-metrics" class="metrics" aria-live="polite"></div>
+        <section class="panel detail">
+          <div class="panel-head"><div><h2>Implied volatility heatmap</h2>
+            <p>Annualized IV by expiry and strike as a percentage of forward. Select an expiry to inspect its curve.</p></div>
+            <button id="surface-export" class="secondary" type="button" disabled>Download CSV</button></div>
+          <div id="surface-grid"></div>
+          <div class="heat-scale" aria-label="Heatmap color scale">
+            <span id="surface-minimum"></span><span class="heat-gradient" aria-hidden="true"></span><span id="surface-maximum"></span>
+          </div>
+        </section>
+        <section class="panel chart-panel">
+          <h2>Volatility by strike</h2>
+          <p id="surface-selection" role="status"></p>
+          <div class="chart compact"><canvas id="surface-chart" role="img" aria-label="Implied volatility by strike for the selected expiry" aria-describedby="surface-selection"></canvas></div>
+          <div id="surface-quotes"></div>
+          <div class="benchmark-notes"><p>The chain uses puts below the forward and calls at or above it. A dash marks premiums with too little time value for a reliable inversion.</p></div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section id="market" class="workspace" hidden>
+    <form id="market-form" class="panel controls">
+      <h2>Chain inputs</h2>
+      <label>Quote source<select id="market-source" name="source">
+        <option value="example">Example chain</option>
+        <option value="csv">CSV upload</option>
+        <option value="alpaca">Alpaca snapshot</option>
+      </select></label>
+      <fieldset class="market-inputs" id="market-csv-fields" hidden disabled>
+        <label>Quotes CSV<input type="file" name="quotes_file" accept=".csv,text/csv" required></label>
+        <label>Valuation date (UTC)<input name="as_of" type="date" required></label>
+        <label>Spot price ($)<input name="spot" type="number" min=".01" max="100000" step="any" required></label>
+        <p>Required columns are expiry, strike, kind, bid, and ask. The example uses $100 spot on January 15, 2026.</p>
+      </fieldset>
+      <fieldset class="market-inputs" id="market-alpaca-fields" hidden disabled>
+        <label>Underlying symbol<input name="symbol" type="text" value="AAPL" maxlength="6" pattern="[A-Za-z][A-Za-z0-9]{0,5}" required></label>
+        <label>Options feed<select name="feed"><option value="indicative">Indicative</option><option value="opra">OPRA</option></select></label>
+        <label>Expiry<input name="expiry" type="date"></label>
+        <p>Leave expiry blank for contracts over the next 45 days. The spot input comes from the latest IEX trade.</p>
+      </fieldset>
+      <div class="fields">
+        <label>Reference vol (%)<input name="reference_vol" type="number" value="25" min=".1" max="250" step="any" required></label>
+        <label>Interest rate (%)<input name="rate" type="number" value="4" min="-20" max="30" step="any" required></label>
+        <label>Dividend yield (%)<input name="dividend" type="number" value="0" min="0" max="30" step="any" required></label>
+      </div>
+      <button class="primary" type="submit">Analyze chain <span aria-hidden="true">↗</span></button>
+      <a class="example-link" href="/market-example.csv" download="market-example.csv">Download example CSV</a>
+    </form>
+    <div class="results">
+      <div id="market-status" class="status" role="status"></div>
+      <div id="market-results" class="results" hidden>
+        <div id="market-metrics" class="metrics" aria-live="polite"></div>
+        <section class="panel chart-panel">
+          <div class="panel-head"><div><h2>Chain by strike</h2><p id="market-provenance"></p></div>
+            <button id="market-export" class="secondary" type="button" disabled>Download CSV</button>
+          </div>
+          <div class="result-filters">
+            <label class="result-filter">Expiry<select id="market-expiry"></select></label>
+            <label class="result-filter">Option type<select id="market-kind"><option value="call">Call</option><option value="put">Put</option></select></label>
+          </div>
+          <div id="market-iv-plot" hidden>
+            <div class="legend"><span>Midpoint IV</span><span>Reference volatility</span></div>
+            <div class="chart compact"><canvas id="market-iv-chart" role="img" aria-label="Midpoint implied volatility and reference volatility across strikes"></canvas></div>
+          </div>
+          <div id="market-quotes"></div>
+          <div class="benchmark-notes">
+            <p id="market-slice-status" role="status"></p>
+            <p>Model premiums use the same reference volatility. Midpoint IV uses European exercise assumptions and the spot, rate, and dividend yield shown for this run.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <section id="report" class="workspace" hidden>
+    <form id="report-form" class="panel controls">
+      <h2>Benchmark settings</h2>
+      <div class="fields">
+        <label>First training seed<input name="seed" type="number" value="42" min="0" max="999997" required></label>
+        <label>Held-out seed<input name="test_seed" type="number" value="2026" min="0" max="999999" required></label>
+      </div>
+      <p>The report uses the default European call, three consecutive training seeds, and the default hedge stress scenarios.</p>
+      <button class="primary" type="submit">Generate report <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="results">
+      <div id="report-status" class="status" role="status"></div>
+      <div id="report-results" class="results" hidden>
+        <div id="report-metrics" class="metrics" aria-live="polite"></div>
+        <section class="panel detail">
+          <div class="panel-head"><div><h2>Reference pricing</h2><p id="report-contract"></p></div>
+            <button id="report-export" class="secondary" type="button" disabled>Download report</button>
+          </div>
+          <div id="report-pricing"></div>
+        </section>
+        <section class="panel detail">
+          <h2>Pricing robustness</h2>
+          <p>Highest call price mean absolute error across training seeds, in dollars per share.</p>
+          <div id="report-robustness"></div>
+        </section>
+        <section class="panel detail">
+          <h2>Hedge stress comparison</h2>
+          <p>Tail P&amp;L is the mean of the worst 5% of simulated paths. The report includes all six scenario summaries.</p>
+          <div id="report-stress"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+  <footer><span>Options research · USD per underlying share · ACT/365</span><details><summary>Methodology</summary><p>The app prices European vanilla contracts with constant rates and dividend yields. The baseline MLP learns normalized call prices from synthetic Black–Scholes labels. Fine-tuning adds an analytical delta target and a soft penalty for violating European price bounds. Put prices use parity. The constrained mixture combines same-forward lognormal prices using positive weights and increasing volatility clocks. Evaluation counts price-bound and Greek sign violations. Simulated hedge performance uses seeded geometric Brownian motion. The numerical benchmark compares a Cox–Ross–Rubinstein tree and two Monte Carlo samplers with the analytic price. The volatility surface generates a synthetic chain and solves for implied volatility at each strike and expiry.</p></details></footer>
+</main>
+</body>
+</html>
